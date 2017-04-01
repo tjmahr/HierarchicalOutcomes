@@ -4,6 +4,10 @@ I was piqued by the idea of modeling multiple outcome variables as nested within
 
 I've found [this article](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4119868/#SD3), [this gist](https://gist.github.com/khakieconomics/9dd785c241a1ee0b6f32), and [this reference page](http://stats.idre.ucla.edu/r/faq/multivariate-random-coefficient-model/) on the topic.
 
+***
+
+We can ask and answer multivariate questions.
+
 > Examples of multivariate hypotheses include testing whether outcomes have different average rates of change (Kaysen et al., 2011) or whether change in one outcome is related to change in another (Suvak, Walling, Iverson, Taft, & Resick, 2009).
 
 We can test whether one outcome was more affected than another.
