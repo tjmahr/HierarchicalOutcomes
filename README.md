@@ -10,7 +10,7 @@ We can ask and answer multivariate questions.
 
 > Examples of multivariate hypotheses include testing whether outcomes have different average rates of change (Kaysen et al., 2011) or whether change in one outcome is related to change in another (Suvak, Walling, Iverson, Taft, & Resick, 2009).
 
-We can test whether one outcome was more affected than another.
+We can test whether one outcome is more affected than another.
 
 > McDonagh et al. (2005) randomized participants meeting criteria for posttraumatic stress disorder (PTSD) to cognitive-behavioral therapy (CBT), present centered therapy (PCT), and wait-list (WL). In the analysis, the authors examined treatment effects across each outcome (using the group×time interaction in a repeated measures ANOVA and post-hoc tests). The authors found a statistically significant intervention effect for PTSD symptoms but not for depression. The authors interpret the statistical significance for one outcome but not the other as important: “The fact that this treatment [PCT] had more of an impact on PTSD symptoms than on depressive symptoms suggests its mechanism is not simply an antidepressant effect such as has already been demonstrated for problem-solving therapy” (p. 522).
 >
