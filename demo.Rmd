@@ -1,0 +1,29 @@
+---
+title: "Multivariate, muliple-outcome mixed effects model"
+author: "TJ Mahr"
+date: "April 3, 2017"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  comment = "#>",
+  collapse = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(readr)
+d <- read_csv("./data/NIHMS557790-supplement-Dataset_long_format.csv")
+d
+```
+
+
+```{r}
+# dl <- d %>% 
+#   select(pid, time, tx, var, y) %>% 
+#   mutate(outcome = paste0("var", var)) %>% 
+#   select(pid, time, tx, outcome, value = y)
+# dl
+```
