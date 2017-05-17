@@ -16,14 +16,245 @@ knitr::opts_chunk$set(
 library(dplyr)
 library(readr)
 d <- read_csv("./data/NIHMS557790-supplement-Dataset_long_format.csv")
+d$outcome <- ifelse(d$var == 1, "depression", "quality")
 d
+```
+
+```{r}
+library(ggplot2)
+ggplot(d) + 
+  aes(x = time, y = y, color = factor(tx)) + 
+  geom_point(position = position_jitterdodge(dodge.width = .3, jitter.width = .1), alpha = .25) + 
+  stat_summary(position = position_dodge(width = .3), size = 1) + 
+  facet_grid(var ~ ., labeller = label_both)
+
+ggplot(d) + 
+  aes(x = time, y = y, color = factor(tx)) + 
+  geom_line(aes(group = pid)) + 
+  facet_grid(var ~ ., labeller = label_both)
+```
+
+
+## Univariate outcome model
+
+Let's consider a single outcome.
+
+```{r}
+dl <- d %>%
+  select(pid, time, tx, var, y) %>%
+  mutate(outcome = paste0("var", var)) %>%
+  select(pid, time, tx, outcome, value = y)
+dl_1 <- dl %>% filter(outcome == "var1")
+dl_1
+```
+
+For one outcome, it's a varying slope model. They give this equation.
+
+$$y_{1ij}=β_{10}+β_{11}Time_{ij}+β_{12}Tx_j+β_{13}Time_{ij}Tx_j+u_{1j}+v_{1j}Time_{ij}+e_{1ij}$$
+
+And describe it like so. Notes in brackets are my addition.
+
+> Focusing on Equation (1), y1ij [`value`] is the depression outcome at time i for person
+j. β10 is the overall intercept [`~ 1`], and like all intercepts, it represents the
+expected depression value (i.e., mean) of the outcome when all predictors are
+equal to 0, in this case when Timeij = 0 (Baseline) and Txj = 0 (control). [...] 
+β11 is the average rate of change in depression symptoms
+during treatment for the control condition [`~ time`], β12 is the mean difference between
+CBT and control at baseline[`~ tx`], β13 is the difference in rate of change between CBT
+and control (i.e., the treatment effect) [`~ tx:time`], u1j is a random effect representing
+person-specific differences at baseline (i.e., unique baseline values for each
+participant) [`~ (1 | pid)`], v1j is a random effect representing person-specific differences in
+change during treatment (i.e., unique rate of change for each participant) [`~ (time | pid)`], and
+e1ij is residual error.
+
+```{r}
+library(lme4)
+arm::display(lmer(value ~ time * tx + (1 + time | pid), dl_1))
+```
+
+This matches the top left corner of the table here: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4119868/table/T2/
+
+```{r}
+
+```
+
+
+## Multivariate outcomes model
+
+It seems like it's harder to write the independent outcomes model than it is
+write the related outcomes model. (The matrix in (7) looks harder to code.) So I
+will do the full, related outcomes model.
+
+```{r}
+help
+```
+
+
+
+First, let's ignore nesting of data within participants and try a "seemingly
+unrelated regression" model. I copied this from the Stan manual.
+
+```{r}
+sur_stan_code <- "
+data {
+  int<lower=0> N; // num observations
+  int<lower=1> J; // num predictors
+  int<lower=1> K; // num outcomes 
+  vector[J] x[N]; // predictor matrix
+  vector[K] y[N]; // outcome matrix
+}
+parameters {
+  matrix[K, J] beta;
+  corr_matrix[K] corr_outcomes;
+  vector<lower=0>[K] scale_outcomes;
+}
+model {
+  vector[K] mu[N];
+  
+  corr_outcomes ~ lkj_corr(2);
+  scale_outcomes ~ cauchy(0, 2.5);
+
+  for (n in 1:N) {
+    mu[n] = beta * x[n];
+  }
+
+  y ~ multi_normal(mu, quad_form_diag(corr_outcomes, scale_outcomes));
+}
+"
+```
+
+```{r, cache=TRUE, cache.vars = "sur_stan_code"}
+sur_model <- stan_model(model_code = sur_stan_code)
 ```
 
 
 ```{r}
-# dl <- d %>% 
-#   select(pid, time, tx, var, y) %>% 
-#   mutate(outcome = paste0("var", var)) %>% 
-#   select(pid, time, tx, outcome, value = y)
-# dl
+library(rstan)
+dwide <- d %>% 
+  select(pid:y, outcome) %>% 
+  tidyr::spread(outcome, y) %>% 
+  print()
+
+sur_data <- list(
+  N = nrow(dwide),
+  J = ncol(model.matrix(~ time * tx, dwide)),
+  K = ncol(model.matrix(~ 0 + depression + quality, dwide)),
+  x = model.matrix(~ time * tx, dwide),
+  y = model.matrix(~ 0 + depression + quality, dwide)
+)
+```
+
+```{r, cache=TRUE, cache.vars = "sur_model"}
+sur_results <- sampling(sur_model, sur_data)
+sur_results
+```
+
+
+Now, we should add some infrastructure for random effects.
+
+```{r}
+rsur_stan_code <- "
+data {
+  int<lower=0> N; // num observations
+  int<lower=1> J; // num predictors
+  int<lower=1> K; // num outcomes 
+  
+  int<lower=1> P; // num participants 
+  int<lower=1> L; // num participant-level predictors 
+  
+  row_vector[L] u[P]; // participant-level predictors (interact with randomly varying predictors)
+  vector[J] x[N]; // randomly varying predictors matrix
+  vector[K] y[N]; // outcome matrix
+}
+parameters {
+  matrix[K, J] beta;  
+  matrix[L, K * J] gamma; 
+
+  matrix[K * J, K * J] ranefs;
+  corr_matrix[K * J] corr_ranef;
+  vector<lower=0>[K * J] scale_ranef;
+
+  corr_matrix[K] corr_outcomes;
+  vector<lower=0>[K] scale_outcomes;
+}
+model {
+  vector[K] mu[N];
+
+  corr_ranef ~ lkj_corr(2);
+  scale_ranef ~ cauchy(0, 2.5);
+  
+  corr_outcomes ~ lkj_corr(2);
+  scale_outcomes ~ cauchy(0, 2.5);
+
+  to_vector(gamma) ~ normal(0, 5);
+  {
+    row_vector[J] u_gamma[P];
+    for (p in 1:P) {
+      u_gamma[p] = u[p] * gamma;
+    }
+    to_vector(beta) ~ multi_normal(u_gamma, quad_form_diag(corr_ranef, scale_ranef));
+  }
+
+  for (n in 1:N) {
+    mu[n] = beta * x[n];
+  }
+
+  y ~ multi_normal(mu, quad_form_diag(corr_outcomes, scale_outcomes));
+}
+"
+```
+
+
+
+```{r}
+omg <- stan_model(model_code = rsur_stan_code)
+```
+
+```{r}
+d_treat <- dwide %>% select(pid, tx) %>% unique
+sur_data <- list(
+  N = nrow(dwide),
+  J = ncol(model.matrix(~ time, dwide)),
+  K = ncol(model.matrix(~ 0 + depression + quality, dwide)),
+  P = length(unique(dwide$pid)),
+  L = ncol(model.matrix(~ 1 + tx, dwide)),
+  u = model.matrix(~ 1 + tx, d_treat),
+  x = model.matrix(~ time, dwide),
+  y = model.matrix(~ 0 + depression + quality, dwide)
+)
+
+ 
+#   int<lower=0> N; // num observations
+#   int<lower=1> J; // num predictors
+#   int<lower=1> K; // num outcomes 
+#   
+#   int<lower=1> P; // num participants 
+#   int<lower=1> L; // num participant-level predictors 
+#   
+#   row_vector[L] u[P]; // participant-level predictors (interact with randomly varying predictors)
+#   vector[J] x[N]; // randomly varying predictors matrix
+#   vector[K] y[N]; // outcome matrix
+sur_results <- sampling(omg, sur_data)
+sur_results
+```
+
+Hmmm... I still haven't cracked this one yet.
+
+```
+Rejecting initial value:
+  Error evaluating the log probability at the initial value.
+
+Rejecting initial value:
+  Error evaluating the log probability at the initial value.
+
+Rejecting initial value:
+  Error evaluating the log probability at the initial value.
+
+Rejecting initial value:
+  Error evaluating the log probability at the initial value.
+
+Initialization between (-2, 2) failed after 100 attempts. 
+ Try specifying initial values, reducing ranges of constrained values, or reparameterizing the model.
+[1] "Error in sampler$call_sampler(args_list[[i]]) : Initialization failed."
+[1] "error occurred during calling the sampler; sampling not done"
 ```
