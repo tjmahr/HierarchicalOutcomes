@@ -1,0 +1,134 @@
+---
+title: "Multivariate, muliple-outcome mixed effects model"
+author: "TJ Mahr"
+date: "May 18, 2017"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  comment = "#>",
+  collapse = TRUE)
+```
+
+I've been trying to fit a multivariate mixed effects model, as described in
+[this article](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4119868/) using pure
+Stan code. The article has dummy example of this kind of model that I am using
+to validate candidate models.
+
+```{r, message = FALSE}
+library(dplyr)
+library(readr)
+library(brms)
+library(rstan)
+options(mc.cores = parallel::detectCores())
+
+d <- read_csv("./data/NIHMS557790-supplement-Dataset_long_format.csv")
+dwide <- d %>% 
+  mutate(outcome = ifelse(var == 1, "depression", "quality")) %>% 
+  select(pid:y, outcome) %>% 
+  tidyr::spread(outcome, y)
+dwide
+```
+
+But it turns out to be trivial in brms.
+
+Fit the model:
+
+```{r, eval = FALSE}
+model <- brm(
+  cbind(depression, quality) ~ time * tx + (time | 2 | pid), 
+  data = dwide, iter = 10000, 
+  save_dso = TRUE, 
+  save_model = "model.stan")
+```
+
+```{r, echo = FALSE}
+load("model.Rdata")
+```
+
+Here's the fit.
+
+```{r}
+model
+```
+
+Load up the results from the table in the paper.
+
+```{r}
+paper <- list(
+  "depression_Intercept" = −.08,
+  "depression_time"	= .06, 
+  "depression_tx"	=	.16,
+  "depression_time:tx" = −.41,
+  
+  "quality_Intercept"	= −.08,
+  "quality_time"	= .002,
+  "quality_tx"	= .08,
+  "quality_time:tx" = −.09,
+  
+  "sd(depression_Intercept)" = sqrt(.49),
+  "sd(depression_time)" = sqrt(.04),
+  # "cov(depression_Intercept,depression_time)" = .004,
+  "cor(depression_Intercept,depression_time)" = .004 / (sqrt(.49) * sqrt(.04)),
+  
+  "sd(quality_Intercept)" =	sqrt(.73),
+  "sd(quality_time)" =	sqrt(.14),
+  # "cov(quality_Intercept,quality_time)" = −.14,
+  "cor(quality_Intercept,quality_time)" = −.14 / (sqrt(.73) * sqrt(.14)),
+  
+  # "cov(depression_Intercept,quality_Intercept)"	= .16,
+  "cor(depression_Intercept,quality_Intercept)"	= .16 / (sqrt(.49) * sqrt(.73)),
+  # "cov(depression_Intercept,quality_time)" =	−.04,
+  "cor(depression_Intercept,quality_time)" =	−.04 / (sqrt(.49) * sqrt(.14)),
+  # "cov(depression_time,quality_Intercept)" = −.04,
+  "cor(depression_time,quality_Intercept)" = −.04 / (sqrt(.04) * sqrt(.73)),
+  # "cov(depression_time,quality_time)"	= .06,
+  "cor(depression_time,quality_time)"	= .06 / (sqrt(.04) * sqrt(.14)),
+  
+  "sigma(depression)" =	sqrt(.39),
+  "sigma(quality)" = sqrt(.30),
+  # "cov(depression,quality)" =	.15,
+  "rescor(depression,quality)" =	.15 / (sqrt(.39) * sqrt(.30))
+)
+```
+
+Some junk to clean up the column names
+
+```{r}
+df <- as.data.frame(model)
+names(df) <- names(as.data.frame(model)) %>% 
+  stringr::str_replace("time.tx", "time:tx") %>% 
+  stringr::str_replace("^b_", "") %>% 
+  stringr::str_replace("^sd(.+)$", "sd(\\1)") %>% 
+  stringr::str_replace("^cor(.+)$", "cor(\\1)") %>% 
+  stringr::str_replace("^rescor(.+)$", "rescor(\\1)") %>% 
+  stringr::str_replace("^sigma_(.+)$", "sigma(\\1)") %>% 
+  stringr::str_replace("pid", "") %>% 
+  stringr::str_replace("[(]_+", "(") %>% 
+  stringr::str_replace("__+", ",")
+df <- df %>% select(1:21)  %>% tibble::as.tibble()
+```
+
+Compare the MLE and MCMC estimates!
+
+```{r}
+ordering <- names(df)
+dfl <- df %>% tidyr::gather(parameter, value)
+paper_df <- tibble::enframe(paper, name = "parameter") %>% 
+  tidyr::unnest(value)
+
+library(ggplot2)
+ggplot(dfl) + 
+  aes(x = factor(parameter, levels = rev(ordering)), y = value) + 
+  stat_summary(aes(color = "brms fit"), fun.data = median_hilow,  
+               fun.args = list(conf.int = .95)) + 
+  geom_point(aes(color = "article"), data = paper_df) + 
+  coord_flip() + 
+  scale_color_manual(values  = c("red", "black")) + 
+  labs(y = NULL, x = NULL, colour = "source") + 
+  theme(legend.position = "bottom")
+```
+
+
