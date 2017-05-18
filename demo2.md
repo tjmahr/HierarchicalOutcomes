@@ -1,4 +1,4 @@
-Multivariate, muliple-outcome mixed effects model
+Multivariate/muliple-outcome mixed effects model
 ================
 TJ Mahr
 May 18, 2017
